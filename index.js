@@ -13,7 +13,7 @@ const CLIENT_SECRET = process.env.TWITCH_CLIENT_SECRET;
 let cachedToken = null;
 let expiresAt = 0;
 
-// Fetch a new IGDB/Twitch access token
+// Fetch new IGDB/Twitch token
 async function fetchToken() {
   const response = await fetch(
     `https://id.twitch.tv/oauth2/token?client_id=${CLIENT_ID}&client_secret=${CLIENT_SECRET}&grant_type=client_credentials`,
@@ -28,7 +28,6 @@ async function fetchToken() {
   return cachedToken;
 }
 
-// Return cached token if still valid
 async function getValidToken() {
   if (cachedToken && Date.now() < expiresAt) {
     return cachedToken;
@@ -36,9 +35,9 @@ async function getValidToken() {
   return fetchToken();
 }
 
-// =========================================================
-// GET /token → debug/utility endpoint
-// =========================================================
+// ======================================================================
+// TOKEN ENDPOINT
+// ======================================================================
 app.get("/token", async (req, res) => {
   try {
     const token = await getValidToken();
@@ -51,9 +50,9 @@ app.get("/token", async (req, res) => {
   }
 });
 
-// =========================================================
-// GET /games → simple test call
-// =========================================================
+// ======================================================================
+// SIMPLE GAMES (EXAMPLE)
+// ======================================================================
 app.get("/games", async (req, res) => {
   try {
     const token = await getValidToken();
@@ -63,9 +62,10 @@ app.get("/games", async (req, res) => {
       headers: {
         "Client-ID": CLIENT_ID,
         "Authorization": "Bearer " + token,
-        "Accept": "application/json",
+        Accept: "application/json",
       },
-      body: "fields name, first_release_date, cover.url; limit 10;",
+      body:
+        "fields name, first_release_date, cover.url; limit 10;",
     });
 
     const json = await response.json();
@@ -78,20 +78,26 @@ app.get("/games", async (req, res) => {
   }
 });
 
-// =========================================================
-// POST /searchGames → your existing block
-// =========================================================
+// ======================================================================
+// IMPROVED SEARCH ENDPOINT (FIXED FOR MULTI-WORD TYPING)
+// ======================================================================
 app.post("/searchGames", async (req, res) => {
   try {
-    const query = req.query.query;
-    if (!query || query.trim().length === 0) {
+    const rawQuery = req.query.query ?? "";
+    const query = rawQuery.trim();
+
+    if (query.length === 0) {
       return res.json([]);
     }
 
     const token = await getValidToken();
 
+    // Multi-word fuzzy search (fixes "rocket leag")
+    const processed = query.split(" ").join("*");
+
     const body = `
-      search "${query}";
+      search "${processed}";
+      where name ~ *"${query}"*;
       fields name, summary, first_release_date, cover.url;
       limit 20;
     `;
@@ -101,7 +107,7 @@ app.post("/searchGames", async (req, res) => {
       headers: {
         "Client-ID": CLIENT_ID,
         "Authorization": "Bearer " + token,
-        "Accept": "application/json",
+        Accept: "application/json",
       },
       body: body,
     });
@@ -116,24 +122,19 @@ app.post("/searchGames", async (req, res) => {
   }
 });
 
-// =========================================================
+// ======================================================================
 // HOME PAGE ENDPOINTS
-// =========================================================
+// ======================================================================
 
-// GET /home/topDaily
+// Top Daily
 app.get("/home/topDaily", async (req, res) => {
   try {
     const token = await getValidToken();
 
-    const now = Math.floor(Date.now() / 1000);
-    const thirtyDaysAgo = now - 30 * 24 * 3600;
-
     const body = `
-      where first_release_date > ${thirtyDaysAgo}
-        & total_rating > 60;
-      fields id, name, cover.url, first_release_date, total_rating, total_rating_count;
-      sort total_rating_count desc;
-      limit 10;
+      fields name, cover.url, rating, first_release_date;
+      sort rating desc;
+      limit 20;
     `;
 
     const response = await fetch("https://api.igdb.com/v4/games", {
@@ -141,34 +142,31 @@ app.get("/home/topDaily", async (req, res) => {
       headers: {
         "Client-ID": CLIENT_ID,
         "Authorization": "Bearer " + token,
-        "Accept": "application/json",
+        Accept: "application/json",
       },
-      body,
+      body: body,
     });
 
-    const json = await response.json();
-    res.json(json);
+    res.json(await response.json());
   } catch (err) {
-    res.status(500).json({
-      error: "Failed to fetch topDaily",
-      details: err.toString(),
-    });
+    res.status(500).json({ error: "Failed to fetch topDaily", details: err.toString() });
   }
 });
 
-// GET /home/topThisYear
+// Top This Year
 app.get("/home/topThisYear", async (req, res) => {
   try {
     const token = await getValidToken();
 
-    const startOfYear = Math.floor(new Date(new Date().getFullYear(), 0, 1).getTime() / 1000);
+    const currentYear = new Date().getFullYear();
+    const start = new Date(currentYear, 0, 1).getTime() / 1000;
+    const end = new Date(currentYear, 11, 31).getTime() / 1000;
 
     const body = `
-      where first_release_date > ${startOfYear}
-        & total_rating > 60;
-      fields id, name, cover.url, first_release_date, total_rating, total_rating_count;
-      sort total_rating_count desc;
-      limit 10;
+      fields name, cover.url, rating, first_release_date;
+      where first_release_date >= ${start} & first_release_date <= ${end};
+      sort rating desc;
+      limit 20;
     `;
 
     const response = await fetch("https://api.igdb.com/v4/games", {
@@ -176,22 +174,18 @@ app.get("/home/topThisYear", async (req, res) => {
       headers: {
         "Client-ID": CLIENT_ID,
         "Authorization": "Bearer " + token,
-        "Accept": "application/json",
+        Accept: "application/json",
       },
-      body,
+      body: body,
     });
 
-    const json = await response.json();
-    res.json(json);
+    res.json(await response.json());
   } catch (err) {
-    res.status(500).json({
-      error: "Failed to fetch topThisYear",
-      details: err.toString(),
-    });
+    res.status(500).json({ error: "Failed to fetch this year list", details: err.toString() });
   }
 });
 
-// GET /home/anticipated
+// Anticipated
 app.get("/home/anticipated", async (req, res) => {
   try {
     const token = await getValidToken();
@@ -199,10 +193,10 @@ app.get("/home/anticipated", async (req, res) => {
     const now = Math.floor(Date.now() / 1000);
 
     const body = `
+      fields name, cover.url, first_release_date;
       where first_release_date > ${now};
-      fields id, name, cover.url, first_release_date, hypes;
-      sort hypes desc;
-      limit 10;
+      sort first_release_date asc;
+      limit 20;
     `;
 
     const response = await fetch("https://api.igdb.com/v4/games", {
@@ -210,21 +204,18 @@ app.get("/home/anticipated", async (req, res) => {
       headers: {
         "Client-ID": CLIENT_ID,
         "Authorization": "Bearer " + token,
-        "Accept": "application/json",
+        Accept: "application/json",
       },
-      body,
+      body: body,
     });
 
-    const json = await response.json();
-    res.json(json);
+    res.json(await response.json());
   } catch (err) {
-    res.status(500).json({
-      error: "Failed to fetch anticipated",
-      details: err.toString(),
-    });
+    res.status(500).json({ error: "Failed to fetch anticipated games", details: err.toString() });
   }
 });
 
+// ======================================================================
 app.listen(port, () => {
   console.log("IGDB backend running on port " + port);
 });
