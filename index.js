@@ -36,9 +36,9 @@ async function getValidToken() {
   return fetchToken();
 }
 
-// ---------------------------------------------------------------------------
-// GET /token → Flutter uses this only to verify backend works (optional)
-// ---------------------------------------------------------------------------
+// =========================================================
+// GET /token → debug/utility endpoint
+// =========================================================
 app.get("/token", async (req, res) => {
   try {
     const token = await getValidToken();
@@ -51,9 +51,9 @@ app.get("/token", async (req, res) => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// GET /games → Flutter calls THIS instead of calling IGDB directly
-// ---------------------------------------------------------------------------
+// =========================================================
+// GET /games → simple test call
+// =========================================================
 app.get("/games", async (req, res) => {
   try {
     const token = await getValidToken();
@@ -69,7 +69,6 @@ app.get("/games", async (req, res) => {
     });
 
     const json = await response.json();
-
     res.json(json);
   } catch (err) {
     res.status(500).json({
@@ -79,9 +78,153 @@ app.get("/games", async (req, res) => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// Start server
-// ---------------------------------------------------------------------------
+// =========================================================
+// POST /searchGames → your existing block
+// =========================================================
+app.post("/searchGames", async (req, res) => {
+  try {
+    const query = req.query.query;
+    if (!query || query.trim().length === 0) {
+      return res.json([]);
+    }
+
+    const token = await getValidToken();
+
+    const body = `
+      search "${query}";
+      fields name, summary, first_release_date, cover.url;
+      limit 20;
+    `;
+
+    const response = await fetch("https://api.igdb.com/v4/games", {
+      method: "POST",
+      headers: {
+        "Client-ID": CLIENT_ID,
+        "Authorization": "Bearer " + token,
+        "Accept": "application/json",
+      },
+      body: body,
+    });
+
+    const json = await response.json();
+    res.json(json);
+  } catch (err) {
+    res.status(500).json({
+      error: "Failed to search games",
+      details: err.toString(),
+    });
+  }
+});
+
+// =========================================================
+// HOME PAGE ENDPOINTS
+// =========================================================
+
+// GET /home/topDaily
+app.get("/home/topDaily", async (req, res) => {
+  try {
+    const token = await getValidToken();
+
+    const now = Math.floor(Date.now() / 1000);
+    const thirtyDaysAgo = now - 30 * 24 * 3600;
+
+    const body = `
+      where first_release_date > ${thirtyDaysAgo}
+        & total_rating > 60;
+      fields id, name, cover.url, first_release_date, total_rating, total_rating_count;
+      sort total_rating_count desc;
+      limit 10;
+    `;
+
+    const response = await fetch("https://api.igdb.com/v4/games", {
+      method: "POST",
+      headers: {
+        "Client-ID": CLIENT_ID,
+        "Authorization": "Bearer " + token,
+        "Accept": "application/json",
+      },
+      body,
+    });
+
+    const json = await response.json();
+    res.json(json);
+  } catch (err) {
+    res.status(500).json({
+      error: "Failed to fetch topDaily",
+      details: err.toString(),
+    });
+  }
+});
+
+// GET /home/topThisYear
+app.get("/home/topThisYear", async (req, res) => {
+  try {
+    const token = await getValidToken();
+
+    const startOfYear = Math.floor(new Date(new Date().getFullYear(), 0, 1).getTime() / 1000);
+
+    const body = `
+      where first_release_date > ${startOfYear}
+        & total_rating > 60;
+      fields id, name, cover.url, first_release_date, total_rating, total_rating_count;
+      sort total_rating_count desc;
+      limit 10;
+    `;
+
+    const response = await fetch("https://api.igdb.com/v4/games", {
+      method: "POST",
+      headers: {
+        "Client-ID": CLIENT_ID,
+        "Authorization": "Bearer " + token,
+        "Accept": "application/json",
+      },
+      body,
+    });
+
+    const json = await response.json();
+    res.json(json);
+  } catch (err) {
+    res.status(500).json({
+      error: "Failed to fetch topThisYear",
+      details: err.toString(),
+    });
+  }
+});
+
+// GET /home/anticipated
+app.get("/home/anticipated", async (req, res) => {
+  try {
+    const token = await getValidToken();
+
+    const now = Math.floor(Date.now() / 1000);
+
+    const body = `
+      where first_release_date > ${now};
+      fields id, name, cover.url, first_release_date, hypes;
+      sort hypes desc;
+      limit 10;
+    `;
+
+    const response = await fetch("https://api.igdb.com/v4/games", {
+      method: "POST",
+      headers: {
+        "Client-ID": CLIENT_ID,
+        "Authorization": "Bearer " + token,
+        "Accept": "application/json",
+      },
+      body,
+    });
+
+    const json = await response.json();
+    res.json(json);
+  } catch (err) {
+    res.status(500).json({
+      error: "Failed to fetch anticipated",
+      details: err.toString(),
+    });
+  }
+});
+
 app.listen(port, () => {
   console.log("IGDB backend running on port " + port);
 });
