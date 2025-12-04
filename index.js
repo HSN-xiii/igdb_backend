@@ -91,10 +91,11 @@ app.post("/searchGames", async (req, res) => {
     const token = await getValidToken();
 
     const body = `
-      search "${query}";
-      fields name, summary, first_release_date, cover.url;
-      limit 20;
-    `;
+  search "${query}";
+  fields id, name, summary, first_release_date, cover.image_id;
+  limit 20;
+`;
+
 
     const response = await fetch("https://api.igdb.com/v4/games", {
       method: "POST",
